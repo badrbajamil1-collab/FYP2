@@ -247,17 +247,7 @@ CaptureThread (Producer) → FrameBuffer → ProcessThread (Consumer)
 
 ---
 
-## 📝 Report
 
-The full academic report is in `overleaf_export/` and can be imported directly into [Overleaf](https://www.overleaf.com). It includes:
-
-- Literature review (UVAD, WsVAD, FuVAD, P2VAD)
-- Detailed methodology with mathematical formulations
-- System architecture (TikZ diagrams)
-- Comprehensive evaluation results
-- 9 academic references (APA style)
-
----
 
 ## 📚 References
 
