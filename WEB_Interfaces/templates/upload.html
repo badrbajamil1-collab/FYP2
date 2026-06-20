@@ -1,0 +1,335 @@
+{% extends "base.html" %}
+{% block title %}Upload Video{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>File Processing</h2>
+  <p>Upload a video file for automated system evaluation and anomaly analysis</p>
+</div>
+
+<div class="page-body">
+  <!-- ═══ Upload Zone ═══ -->
+  <div class="card animate-in delay-1" style="margin-bottom:24px;">
+    <div class="card-body">
+      <div id="drop-zone" style="
+        border: 2px dashed var(--border-active);
+        border-radius: var(--radius-lg);
+        padding: 48px 24px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        background: rgba(99,102,241,0.04);
+      ">
+        <div style="margin-bottom: 12px; color: var(--text-muted);"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg></div>
+        <div style="font-size: 1.1rem; font-weight: 600; color: var(--text-primary); margin-bottom: 8px;">
+          Drag & drop a video file here
+        </div>
+        <div style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 16px;">
+          or click to browse — supports MP4, AVI, MOV, MKV (max 500 MB)
+        </div>
+        <input type="file" id="file-input" accept=".mp4,.avi,.mov,.mkv,.mpg,.mpeg,.webm"
+               style="display:none;" onchange="handleFile(this.files[0])">
+        <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+          Choose Video
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Processing Status ═══ -->
+  <div class="card animate-in delay-2" id="processing-card" style="display:none;margin-bottom:24px;">
+    <div class="card-header">
+      <h3 id="proc-title">Processing...</h3>
+      <span class="badge badge-info" id="proc-badge">Running</span>
+    </div>
+    <div class="card-body">
+      <div id="proc-filename" style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:16px;"></div>
+
+      <!-- Progress bar -->
+      <div style="background:var(--bg-elevated);border-radius:6px;height:8px;overflow:hidden;margin-bottom:16px;">
+        <div id="proc-bar" style="width:10%;height:100%;background:linear-gradient(90deg,var(--accent-start),var(--accent-end));border-radius:6px;transition:width 0.5s ease;"></div>
+      </div>
+
+      <div id="proc-steps" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:16px;">
+        <div class="proc-step" id="step-upload">
+          <span class="proc-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg></span> Upload
+          <span class="proc-status" id="step-upload-status">...</span>
+        </div>
+        <div class="proc-step" id="step-skeleton">
+          <span class="proc-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v8"></path><path d="M8 12h8"></path></svg></span> Analysis A
+          <span class="proc-status" id="step-skeleton-status">...</span>
+        </div>
+        <div class="proc-step" id="step-polyline">
+          <span class="proc-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></span> Analysis B
+          <span class="proc-status" id="step-polyline-status">...</span>
+        </div>
+        <div class="proc-step" id="step-x3d">
+          <span class="proc-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></span> Analysis C
+          <span class="proc-status" id="step-x3d-status">...</span>
+        </div>
+        <div class="proc-step" id="step-fusion">
+          <span class="proc-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path><path d="M2 12h20"></path></svg></span> Core Evaluation
+          <span class="proc-status" id="step-fusion-status">...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Result ═══ -->
+  <div class="card animate-in delay-3" id="result-card" style="display:none;">
+    <div class="card-header">
+      <h3>Inference Result</h3>
+    </div>
+    <div class="card-body">
+      <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
+        <!-- Score ring -->
+        <div id="result-ring" style="text-align:center;"></div>
+
+        <!-- Details -->
+        <div style="flex:1;min-width:250px;">
+          <div id="result-prediction" style="font-size:1.5rem;font-weight:800;margin-bottom:8px;"></div>
+          <div id="result-details" style="font-size:0.85rem;color:var(--text-secondary);line-height:1.8;"></div>
+        </div>
+      </div>
+
+      <!-- Timings -->
+      <div style="margin-top:20px;">
+        <h4 style="font-size:0.85rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">Pipeline Timings</h4>
+        <div id="result-timings" class="table-wrap"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Recent uploads ═══ -->
+  <div class="card animate-in delay-4" style="margin-top:24px;">
+    <div class="card-header">
+      <h3>Recent Uploads</h3>
+    </div>
+    <div class="card-body table-wrap">
+      <table>
+        <thead><tr><th>Video</th><th>Prediction</th><th>Score</th><th>Time</th></tr></thead>
+        <tbody id="recent-uploads"></tbody>
+      </table>
+      <div id="no-uploads" class="empty-state" style="padding:24px;">
+        <p style="color:var(--text-muted);">No videos processed yet. Upload one above!</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .proc-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: var(--bg-elevated);
+    border-radius: var(--radius-sm);
+    font-size: 0.82rem;
+    font-weight: 500;
+  }
+  .proc-status {
+    margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+  }
+  .proc-step.done { border-left: 3px solid var(--success); }
+  .proc-step.active { border-left: 3px solid var(--accent-start); background: rgba(99,102,241,0.08); }
+  .proc-step.error { border-left: 3px solid var(--danger); }
+
+  #drop-zone.dragover {
+    border-color: var(--accent-end);
+    background: rgba(99,102,241,0.12);
+  }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const dropZone = document.getElementById('drop-zone');
+const recentUploads = [];
+
+// Drag & drop
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+});
+
+function setStep(step, status, text) {
+  const el = document.getElementById(`step-${step}`);
+  const st = document.getElementById(`step-${step}-status`);
+  el.className = `proc-step ${status}`;
+  st.textContent = text;
+  st.style.color = status === 'done' ? 'var(--success)' :
+                   status === 'error' ? 'var(--danger)' :
+                   status === 'active' ? 'var(--accent-end)' : 'var(--text-muted)';
+}
+
+function createRing(score, size=120) {
+  const r = size / 2 - 10;
+  const circ = 2 * Math.PI * r;
+  const offset = circ * (1 - score);
+  const color = score > 0.5 ? 'var(--danger)' : 'var(--success)';
+  return `
+    <div class="metric-ring" style="width:${size}px;height:${size}px;">
+      <svg width="${size}" height="${size}" style="transform:rotate(-90deg);">
+        <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--bg-elevated)" stroke-width="8"/>
+        <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${color}" stroke-width="8"
+                stroke-dasharray="${circ}" stroke-dashoffset="${offset}" stroke-linecap="round"
+                style="transition: stroke-dashoffset 1.2s ease;"/>
+      </svg>
+      <div class="ring-label">
+        <div class="ring-value" style="color:${color};">${(score*100).toFixed(1)}%</div>
+        <div class="ring-caption">ANOMALY</div>
+      </div>
+    </div>`;
+}
+
+async function handleFile(file) {
+  if (!file) return;
+
+  const procCard = document.getElementById('processing-card');
+  const resultCard = document.getElementById('result-card');
+  procCard.style.display = 'block';
+  resultCard.style.display = 'none';
+
+  document.getElementById('proc-filename').textContent = file.name + ' (' + (file.size / 1024 / 1024).toFixed(1) + ' MB)';
+  document.getElementById('proc-title').textContent = 'Processing...';
+  document.getElementById('proc-badge').textContent = 'Running';
+  document.getElementById('proc-badge').className = 'badge badge-info';
+
+  // Reset steps
+  ['upload','skeleton','polyline','x3d','fusion'].forEach(s => setStep(s, '', '...'));
+  document.getElementById('proc-bar').style.width = '5%';
+
+  // Upload
+  setStep('upload', 'active', 'Uploading...');
+  document.getElementById('proc-bar').style.width = '15%';
+
+  const formData = new FormData();
+  formData.append('video', file);
+
+  try {
+    setStep('upload', 'done', 'Done');
+    setStep('skeleton', 'active', 'Extracting...');
+    setStep('polyline', 'active', 'Extracting...');
+    setStep('x3d', 'active', 'Extracting...');
+    setStep('fusion', 'active', 'Running...');
+    document.getElementById('proc-bar').style.width = '40%';
+
+    const r = await fetch('/api/upload', { method: 'POST', body: formData });
+    const d = await r.json();
+
+    document.getElementById('proc-bar').style.width = '100%';
+
+    if (d.ok) {
+      // Mark steps done with timings
+      if (d.timings) {
+        setStep('skeleton', 'done', (d.timings.skeleton_ms||0).toFixed(0) + 'ms');
+        setStep('polyline', 'done', (d.timings.polyline_ms||0).toFixed(0) + 'ms');
+        setStep('x3d', 'done', (d.timings.x3d_ms||0).toFixed(0) + 'ms');
+        setStep('fusion', 'done', (d.timings.inference_ms||0).toFixed(1) + 'ms');
+      } else {
+        ['skeleton','polyline','x3d','fusion'].forEach(s => setStep(s, 'done', 'OK'));
+      }
+
+      document.getElementById('proc-title').textContent = 'Complete';
+      document.getElementById('proc-badge').textContent = 'Done';
+      document.getElementById('proc-badge').className = 'badge badge-normal';
+
+      // Show result
+      resultCard.style.display = 'block';
+      const isAnom = d.anom_score > 0.5;
+      document.getElementById('result-ring').innerHTML = createRing(d.anom_score);
+      document.getElementById('result-prediction').innerHTML =
+        isAnom
+          ? '<span style="color:var(--danger);">ANOMALOUS</span>'
+          : '<span style="color:var(--success);">NORMAL</span>';
+
+      document.getElementById('result-details').innerHTML = `
+        <div>Score: <strong style="font-family:'JetBrains Mono',monospace;">${d.anom_score.toFixed(4)}</strong></div>
+        <div>Confidence: <strong style="font-family:'JetBrains Mono',monospace;">${(d.confidence*100).toFixed(1)}%</strong></div>
+        <div>P(Normal): ${d.probs.Normal.toFixed(4)} | P(Anomalous): ${d.probs.Anomalous.toFixed(4)}</div>
+      `;
+
+      if (d.timings) {
+        document.getElementById('result-timings').innerHTML = `
+          <table>
+            <thead><tr><th>Processing Stage</th><th>Time</th></tr></thead>
+            <tbody>
+              <tr><td>Input Analysis A</td><td style="font-family:'JetBrains Mono',monospace;">${(d.timings.skeleton_ms||0).toFixed(0)} ms</td></tr>
+              <tr><td>Input Analysis B</td><td style="font-family:'JetBrains Mono',monospace;">${(d.timings.polyline_ms||0).toFixed(0)} ms</td></tr>
+              <tr><td>Visual Evaluation</td><td style="font-family:'JetBrains Mono',monospace;">${(d.timings.x3d_ms||0).toFixed(0)} ms</td></tr>
+              <tr><td>Core Engine Inference</td><td style="font-family:'JetBrains Mono',monospace;">${(d.timings.inference_ms||0).toFixed(1)} ms</td></tr>
+              <tr style="font-weight:700;"><td>Total Processing Time</td><td style="font-family:'JetBrains Mono',monospace;">${(d.timings.total_ms||0).toFixed(0)} ms</td></tr>
+            </tbody>
+          </table>`;
+      }
+
+      // Add to recent
+      recentUploads.unshift({ name: file.name, pred: d.prediction, score: d.anom_score, time: new Date().toLocaleTimeString() });
+      renderRecent();
+
+    } else {
+      // Error
+      document.getElementById('proc-title').textContent = 'Error';
+      document.getElementById('proc-badge').textContent = 'Failed';
+      document.getElementById('proc-badge').className = 'badge badge-anomalous';
+      ['skeleton','polyline','x3d','fusion'].forEach(s => setStep(s, 'error', 'Failed'));
+
+      resultCard.style.display = 'block';
+      document.getElementById('result-ring').innerHTML = '';
+      document.getElementById('result-prediction').innerHTML =
+        `<span style="color:var(--danger);">${d.error}</span>`;
+      document.getElementById('result-details').innerHTML = '';
+      document.getElementById('result-timings').innerHTML = '';
+
+      if (d.model_status) {
+        let html = '<div style="margin-top:12px;">';
+        html += '<strong>Model status:</strong><br>';
+        ['fusion','slda','yolo','x3d'].forEach(k => {
+          const ok = d.model_status[k];
+          html += `<span class="badge ${ok?'badge-normal':'badge-anomalous'}" style="margin:2px;">${k}: ${ok?'OK':'Missing'}</span> `;
+        });
+        html += '</div>';
+        document.getElementById('result-details').innerHTML = html;
+      }
+    }
+  } catch(e) {
+    document.getElementById('proc-title').textContent = 'Network Error';
+    document.getElementById('proc-badge').textContent = 'Failed';
+    document.getElementById('proc-badge').className = 'badge badge-anomalous';
+    setStep('upload', 'error', e.message);
+  }
+}
+
+function renderRecent() {
+  const tbody = document.getElementById('recent-uploads');
+  const noUp = document.getElementById('no-uploads');
+  if (recentUploads.length === 0) {
+    noUp.style.display = 'block';
+    tbody.innerHTML = '';
+    return;
+  }
+  noUp.style.display = 'none';
+  tbody.innerHTML = recentUploads.slice(0, 10).map(u => {
+    const badge = u.score > 0.5
+      ? `<span class="badge badge-anomalous">${u.pred}</span>`
+      : `<span class="badge badge-normal">${u.pred}</span>`;
+    const color = u.score > 0.5 ? 'var(--danger)' : 'var(--success)';
+    return `<tr>
+      <td style="font-weight:500;">${u.name}</td>
+      <td>${badge}</td>
+      <td><span style="font-family:'JetBrains Mono',monospace;color:${color};font-weight:600;">${u.score.toFixed(4)}</span></td>
+      <td style="color:var(--text-muted);">${u.time}</td>
+    </tr>`;
+  }).join('');
+}
+
+renderRecent();
+</script>
+{% endblock %}

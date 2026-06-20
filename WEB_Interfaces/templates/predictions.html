@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Predictions{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>System Evaluation</h2>
+  <p>290 test videos — Automated engine classification — sorted by score</p>
+</div>
+
+<div class="page-body">
+  <!-- ═══ Filters ═══ -->
+  <div class="card animate-in delay-1" style="margin-bottom:20px;">
+    <div class="card-body">
+      <div class="filters-row">
+        <div class="search-box">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="search-input" placeholder="Search video name…">
+        </div>
+        <select class="filter-select" id="label-filter">
+          <option value="">All Labels</option>
+          <option value="0">Normal</option>
+          <option value="1">Anomalous</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" onclick="loadPage(1)">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Table ═══ -->
+  <div class="card animate-in delay-2">
+    <div class="card-body table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Video</th>
+            <th>True Label</th>
+            <th>Predicted</th>
+            <th>Anomaly Score</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody id="pred-tbody"></tbody>
+      </table>
+      <div class="pagination" id="pagination"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+
+function scoreColor(s) {
+  if (s > 0.8)  return 'var(--danger)';
+  if (s > 0.5)  return 'var(--warning)';
+  return 'var(--success)';
+}
+
+async function loadPage(page) {
+  currentPage = page;
+  const q = document.getElementById('search-input').value;
+  const label = document.getElementById('label-filter').value;
+  const url = `/api/predictions?page=${page}&per_page=20&q=${encodeURIComponent(q)}&label=${label}`;
+  const r = await fetch(url);
+  const d = await r.json();
+
+  const tbody = document.getElementById('pred-tbody');
+  tbody.innerHTML = d.data.map((p, i) => {
+    const correct = p.true_label === p.pred_label;
+    const trueTag = p.true_label === 1
+      ? '<span class="badge badge-anomalous"><span class="badge-dot"></span> Anomalous</span>'
+      : '<span class="badge badge-normal"><span class="badge-dot"></span> Normal</span>';
+    const predTag = p.pred_label === 1
+      ? '<span class="badge badge-anomalous">Anomalous</span>'
+      : '<span class="badge badge-normal">Normal</span>';
+    const resultTag = correct
+      ? '<span class="badge badge-normal"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="vertical-align:-1px;margin-right:4px;"><polyline points="20 6 9 17 4 12"></polyline></svg>Correct</span>'
+      : '<span class="badge badge-anomalous"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="vertical-align:-1px;margin-right:4px;"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>Wrong</span>';
+    const color = scoreColor(p.anom_score);
+    return `<tr>
+      <td style="color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${(page-1)*20 + i + 1}</td>
+      <td style="font-weight:500;">${p.stem}</td>
+      <td>${trueTag}</td>
+      <td>${predTag}</td>
+      <td>
+        <span class="score-bar"><span class="score-fill" style="width:${p.anom_score*100}%;background:${color};"></span></span>
+        <span style="font-family:'JetBrains Mono',monospace;color:${color};font-weight:600;">${p.anom_score.toFixed(4)}</span>
+      </td>
+      <td>${resultTag}</td>
+    </tr>`;
+  }).join('');
+
+  // Pagination
+  const pag = document.getElementById('pagination');
+  let html = `<button ${page<=1?'disabled':''} onclick="loadPage(${page-1})">← Prev</button>`;
+  html += `<span class="page-info">Page ${d.page} of ${d.pages} (${d.total} videos)</span>`;
+  html += `<button ${page>=d.pages?'disabled':''} onclick="loadPage(${page+1})">Next →</button>`;
+  pag.innerHTML = html;
+}
+
+// Enter key on search
+document.getElementById('search-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') loadPage(1);
+});
+
+loadPage(1);
+</script>
+{% endblock %}

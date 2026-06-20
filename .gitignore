@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Uploads (user content)
+WEB_Interfaces/uploads/*
+!WEB_Interfaces/uploads/.gitkeep
+
+# Alert snapshots (runtime generated)
+WEB_Interfaces/alert_snapshots/*
+!WEB_Interfaces/alert_snapshots/.gitkeep
+
+# SQLite database (runtime generated)
+WEB_Interfaces/polyflow.db
+
+# Numpy embeddings (large files — use Git LFS or exclude)
+# Uncomment if NOT using Git LFS:
+# WEB_Interfaces/Model/*.npy
+
+# LaTeX auxiliary files
+*.aux
+*.log
+*.out
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.toc

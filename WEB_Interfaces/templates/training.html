@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Training{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Optimization History</h2>
+  <p>System Accuracy Training — 34 cycles · automatic early stopping · high-precision convergence</p>
+</div>
+
+<div class="page-body">
+  <!-- ═══ Charts ═══ -->
+  <div class="chart-grid">
+    <div class="card animate-in delay-1">
+      <div class="card-header"><h3>Loss & Accuracy</h3></div>
+      <div class="card-body">
+        <div class="chart-wrap"><canvas id="lossChart"></canvas></div>
+      </div>
+    </div>
+    <div class="card animate-in delay-2">
+      <div class="card-header"><h3>Accuracy & Reliability</h3></div>
+      <div class="card-body">
+        <div class="chart-wrap"><canvas id="metricChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Epoch Table ═══ -->
+  <div class="card animate-in delay-3" style="margin-top: 24px;">
+    <div class="card-header"><h3>Epoch Log</h3></div>
+    <div class="card-body table-wrap">
+      <table id="epoch-table">
+        <thead>
+          <tr><th>Epoch</th><th>Loss</th><th>Train Acc</th><th>Val F1</th><th>Val AUC</th><th>Status</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+fetch('/api/training-log').then(r=>r.json()).then(log => {
+  const epochs = log.map(r => r.epoch);
+  const losses = log.map(r => r.loss);
+  const trAcc  = log.map(r => r.train_acc);
+  const valF1  = log.map(r => r.val_f1);
+  const valAUC = log.map(r => r.val_auc);
+
+  const bestAUC = Math.max(...valAUC);
+  const bestEp  = log[valAUC.indexOf(bestAUC)].epoch;
+
+  // Loss & Accuracy chart
+  new Chart(document.getElementById('lossChart'), {
+    type: 'line',
+    data: {
+      labels: epochs,
+      datasets: [
+        { label: 'Loss', data: losses, borderColor: 'var(--danger)', backgroundColor:'rgba(248,113,113,0.08)',
+          tension:0.3, fill:true, pointRadius:2, borderWidth:2 },
+        { label: 'Train Acc', data: trAcc, borderColor: 'var(--success)', backgroundColor:'rgba(52,211,153,0.08)',
+          tension:0.3, fill:true, pointRadius:2, borderWidth:2, yAxisID:'y1' },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      interaction: { mode:'index', intersect:false },
+      plugins: {
+        legend: { labels:{color:'var(--text-secondary)', font:{size:11}} },
+        annotation: {}
+      },
+      scales: {
+        x: { ticks:{color:'var(--text-muted)'}, grid:{color:'var(--border)'}, title:{display:true, text:'Epoch', color:'var(--text-secondary)'} },
+        y: { position:'left', ticks:{color:'var(--text-muted)'}, grid:{color:'var(--border)'}, title:{display:true, text:'Loss', color:'var(--text-secondary)'} },
+        y1: { position:'right', ticks:{color:'var(--text-muted)'}, grid:{drawOnChartArea:false}, title:{display:true, text:'Accuracy', color:'var(--text-secondary)'}, min:0, max:1 },
+      }
+    }
+  });
+
+  // F1 & AUC chart
+  new Chart(document.getElementById('metricChart'), {
+    type: 'line',
+    data: {
+      labels: epochs,
+      datasets: [
+        { label: 'Val AUC', data: valAUC, borderColor: 'var(--accent-start)', backgroundColor:'rgba(99,102,241,0.08)',
+          tension:0.3, fill:true, pointRadius:2, borderWidth:2 },
+        { label: 'Val F1', data: valF1, borderColor: '#e879f9', backgroundColor:'rgba(232,121,249,0.08)',
+          tension:0.3, fill:true, pointRadius:2, borderWidth:2 },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      interaction: { mode:'index', intersect:false },
+      plugins: { legend:{labels:{color:'var(--text-secondary)', font:{size:11}}} },
+      scales: {
+        x: { ticks:{color:'var(--text-muted)'}, grid:{color:'var(--border)'}, title:{display:true, text:'Epoch', color:'var(--text-secondary)'} },
+        y: { ticks:{color:'var(--text-muted)'}, grid:{color:'var(--border)'}, min:0.5, max:1, title:{display:true, text:'Score', color:'var(--text-secondary)'} },
+      }
+    }
+  });
+
+  // Epoch table
+  const tbody = document.querySelector('#epoch-table tbody');
+  log.forEach(r => {
+    const isBest = r.val_auc === bestAUC;
+    const tr = document.createElement('tr');
+    if (isBest) tr.style.background = 'rgba(99,102,241,0.08)';
+    
+    tr.innerHTML = `
+        <td style="font-family:'JetBrains Mono',monospace;">${r.epoch}</td>
+        <td style="font-family:'JetBrains Mono',monospace;">${r.loss.toFixed(4)}</td>
+        <td style="font-family:'JetBrains Mono',monospace;">${(r.train_acc*100).toFixed(1)}%</td>
+        <td style="font-family:'JetBrains Mono',monospace;">${r.val_f1.toFixed(4)}</td>
+        <td style="font-family:'JetBrains Mono',monospace; font-weight:${isBest?'800':'400'};">${r.val_auc.toFixed(4)}</td>
+        <td>${isBest ? '<span class="badge badge-anomalous"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:4px;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>Best</span>' : ''}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+});
+</script>
+{% endblock %}

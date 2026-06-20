@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% block title %}Alerts{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Anomaly Alerts</h2>
+  <p>Real-time detections from 3-stream concurrent inference · click Acknowledge to dismiss</p>
+</div>
+
+<div class="page-body">
+  <!-- ═══ Summary cards ═══ -->
+  <div class="stat-grid" id="alert-stats">
+    <div class="stat-card animate-in delay-1">
+      <div class="stat-icon red"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></div>
+      <div class="stat-info">
+        <div class="stat-label">Unacknowledged</div>
+        <div class="stat-value" id="unack-count">—</div>
+      </div>
+    </div>
+    <div class="stat-card animate-in delay-2">
+      <div class="stat-icon green"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+      <div class="stat-info">
+        <div class="stat-label">Acknowledged</div>
+        <div class="stat-value" id="ack-count">—</div>
+      </div>
+    </div>
+    <div class="stat-card animate-in delay-3">
+      <div class="stat-icon yellow">⚡</div>
+      <div class="stat-info">
+        <div class="stat-label">Avg Latency</div>
+        <div class="stat-value" id="avg-lat">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Filter bar ═══ -->
+  <div class="card animate-in delay-2" style="margin-bottom:20px;">
+    <div class="card-body">
+      <div class="filters-row">
+        <select class="filter-select" id="cam-filter">
+          <option value="">All Cameras</option>
+          <option value="CAM-01">CAM-01</option>
+          <option value="CAM-02">CAM-02</option>
+          <option value="CAM-03">CAM-03</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" onclick="loadAlerts(1)">Filter</button>
+        <button class="btn btn-primary btn-sm" onclick="ackAll()" style="margin-left:auto;">Acknowledge All Visible</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Alert feed ═══ -->
+  <div class="card animate-in delay-3">
+    <div class="card-body table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Camera</th>
+            <th>Event Type</th>
+            <th>Score</th>
+            <th>Latency</th>
+            <th>Frame</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="alert-tbody"></tbody>
+      </table>
+      <div class="pagination" id="alert-pagination"></div>
+    </div>
+  </div>
+
+  <!-- ═══ Alert timeline chart ═══ -->
+  <div class="card animate-in delay-4" style="margin-top:24px;">
+    <div class="card-header"><h3>Alert Timeline</h3></div>
+    <div class="card-body">
+      <div class="chart-wrap"><canvas id="timelineChart"></canvas></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let alertPage = 1;
+let alertsData = [];
+
+function formatTime(ts) {
+  const d = new Date(ts * 1000);
+  return d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+
+function scoreColor(s) {
+  if (s > 0.7)  return 'var(--danger)';
+  if (s > 0.4)  return 'var(--warning)';
+  return 'var(--success)';
+}
+
+async function loadAlerts(page) {
+  alertPage = page;
+  const cam = document.getElementById('cam-filter').value;
+  const url = `/api/alerts?page=${page}&per_page=15&cam=${encodeURIComponent(cam)}`;
+  const r = await fetch(url);
+  const d = await r.json();
+  alertsData = d.data;
+
+  const tbody = document.getElementById('alert-tbody');
+  tbody.innerHTML = d.data.map(a => {
+    const isAnom = a.anom_score > 0.5;
+    const color = scoreColor(a.anom_score);
+    const eventBadge = isAnom
+      ? `<span class="badge badge-anomalous">${a.event_type}</span>`
+      : `<span class="badge badge-normal">${a.event_type}</span>`;
+    const statusBadge = a.acknowledged
+      ? '<span class="badge badge-normal">Acknowledged</span>'
+      : '<span class="badge badge-anomalous"><span class="badge-dot"></span> Active</span>';
+    const ackBtn = !isAnom ? '<span style="color:var(--success);font-size:0.75rem;font-weight:700;">Normal</span>'
+      : a.acknowledged
+      ? '<span style="color:var(--text-muted);font-size:0.75rem;">Done</span>'
+      : `<button class="btn-danger-sm" onclick="ackAlert(${a.id})">Acknowledge</button>`;
+    return `<tr style="${isAnom && !a.acknowledged ? 'background:rgba(248,113,113,0.04);' : ''}">
+      <td style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;">${formatTime(a.timestamp)}</td>
+      <td><span class="badge badge-info">${a.camera_id}</span></td>
+      <td>${eventBadge}</td>
+      <td>
+        <span class="score-bar"><span class="score-fill" style="width:${a.anom_score*100}%;background:${color};"></span></span>
+        <span style="font-family:'JetBrains Mono',monospace;color:${color};font-weight:600;">${a.anom_score.toFixed(3)}</span>
+      </td>
+      <td style="font-family:'JetBrains Mono',monospace;">${a.latency_ms.toFixed(1)} ms</td>
+      <td style="font-family:'JetBrains Mono',monospace;color:var(--text-muted);">${a.frame_idx}</td>
+      <td>${statusBadge}</td>
+      <td>${ackBtn}</td>
+    </tr>`;
+  }).join('');
+
+  // Pagination
+  const pag = document.getElementById('alert-pagination');
+  let html = `<button ${page<=1?'disabled':''} onclick="loadAlerts(${page-1})">← Prev</button>`;
+  html += `<span class="page-info">Page ${d.page} of ${d.pages} (${d.total} alerts)</span>`;
+  html += `<button ${page>=d.pages?'disabled':''} onclick="loadAlerts(${page+1})">Next →</button>`;
+  pag.innerHTML = html;
+
+  updateAlertStats();
+}
+
+async function ackAlert(id) {
+  await fetch(`/api/alerts/${id}/ack`, { method: 'POST' });
+  loadAlerts(alertPage);
+}
+
+async function ackAll() {
+  const cam = document.getElementById('cam-filter').value;
+  await fetch('/api/alerts/ack-all', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(cam ? {camera_id: cam} : {})
+  });
+  loadAlerts(alertPage);
+}
+
+async function updateAlertStats() {
+  const r = await fetch('/api/stats');
+  const d = await r.json();
+
+  document.getElementById('unack-count').textContent = d.unacked_alerts ?? '—';
+  document.getElementById('ack-count').textContent = d.acked_alerts ?? '—';
+  document.getElementById('avg-lat').textContent = (d.avg_latency_ms ?? '—') + ' ms';
+}
+
+// ── Timeline chart ────────────────────────────────────────────────────────
+async function loadTimeline() {
+  const r = await fetch('/api/alerts?per_page=50');
+  const d = await r.json();
+  const alerts = d.data.reverse(); // oldest first
+
+  const camList = [...new Set(alerts.map(a => a.camera_id))].sort();
+  const palette = [
+    '#4f46e5', // Indigo
+    '#059669', // Emerald
+    '#dc2626', // Red
+    '#d97706', // Amber
+    '#7c3aed', // Violet
+    '#0891b2', // Cyan
+    '#db2777', // Pink
+  ];
+
+  const datasets = camList.map((cam, ci) => ({
+    label: cam,
+    data: alerts
+      .filter(a => a.camera_id === cam)
+      .map(a => ({ x: a.timestamp * 1000, y: a.anom_score })),
+    borderColor: palette[ci % palette.length],
+    backgroundColor: palette[ci % palette.length] + '33',
+    pointRadius: 5,
+    pointHoverRadius: 8,
+    showLine: false,
+  }));
+
+  new Chart(document.getElementById('timelineChart'), {
+    type: 'scatter',
+    data: {
+      datasets,
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: 'var(--text-secondary)', font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: score=${ctx.parsed.y.toFixed(3)}`,
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'linear',
+          ticks: { 
+            color: 'var(--text-muted)', 
+            font: { size: 8 }, 
+            maxRotation: 45,
+            callback: function(value) {
+                return new Date(value).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+            }
+          },
+          grid: { color: 'var(--border)' },
+          title: { display: true, text: 'Time', color: 'var(--text-secondary)' },
+        },
+        y: {
+          min: 0, max: 1,
+          ticks: { color: 'var(--text-muted)' },
+          grid: { color: 'var(--border)' },
+          title: { display: true, text: 'Anomaly Score', color: 'var(--text-secondary)' },
+        },
+      },
+    },
+  });
+}
+
+loadAlerts(1);
+loadTimeline();
+</script>
+{% endblock %}

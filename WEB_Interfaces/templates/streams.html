@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% block title %}Live Streams{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2>Security Feeds</h2>
+  <p>Manage and monitor connected camera sources</p>
+</div>
+
+<div class="page-body">
+  <!-- ═══ Add Stream Form ═══ -->
+  <div class="card animate-in delay-1" style="margin-bottom:24px;">
+    <div class="card-header">
+      <h3>Add New Stream</h3>
+    </div>
+    <div class="card-body">
+      <div class="filters-row" style="gap:12px;">
+        <div class="search-box" style="flex:0 0 auto;">
+          <span style="color:var(--text-muted);font-size:0.75rem;white-space:nowrap;">Camera ID</span>
+          <input type="text" id="new-cam-id" placeholder="e.g. CAM-04" style="width:120px;">
+        </div>
+        <div class="search-box" style="flex:1;">
+          <span style="color:var(--text-muted);font-size:0.75rem;white-space:nowrap;">Source</span>
+          <input type="text" id="new-cam-source" placeholder="rtsp://... or /path/to/video.mp4 or 0 (webcam)" style="width:100%;">
+        </div>
+        <button class="btn btn-primary" onclick="addStream()" id="btn-add-stream">
+          + Add Stream
+        </button>
+      </div>
+      <div id="add-result" style="margin-top:12px;"></div>
+    </div>
+  </div>
+
+  <!-- ═══ Stream Cards ═══ -->
+  <div id="stream-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:24px;">
+    <!-- Filled by JS -->
+  </div>
+
+  <div id="no-streams" class="empty-state" style="display:none;">
+    <div class="icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg></div>
+    <p>No streams added yet. Use the form above to add a camera feed.</p>
+  </div>
+
+  <!-- Sections for model details and benchmarks removed as requested -->
+</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Helpers ──────────────────────────────────────────────────────────────
+function setResultBadge(div, ok, msg, detail = "") {
+  div.innerHTML = "";
+  const b = document.createElement("span");
+  b.className = `badge ${ok ? "badge-normal" : "badge-anomalous"}`;
+  b.textContent = msg;
+  div.appendChild(b);
+  if (detail) {
+    const s = document.createElement("span");
+    s.style.fontSize = "0.78rem";
+    s.style.color = "var(--text-secondary)";
+    s.style.marginLeft = "8px";
+    s.textContent = detail;
+    div.appendChild(s);
+  }
+}
+
+// ── Load streams ──────────────────────────────────────────────────────────
+async function loadStreams() {
+  const r = await fetch('/api/streams');
+  const streams = await r.json();
+  const grid = document.getElementById('stream-grid');
+  const empty = document.getElementById('no-streams');
+
+  if (streams.length === 0) {
+    grid.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  grid.innerHTML = streams.map((s, i) => {
+    let statusBadge;
+    if (s.status === 'running')
+      statusBadge = '<span class="badge badge-running"><span class="badge-dot"></span> Running</span>';
+    else if (s.status === 'unreachable')
+      statusBadge = '<span class="badge badge-anomalous">Unreachable</span>';
+    else
+      statusBadge = '<span class="badge badge-idle">Idle</span>';
+
+    return `
+    <div class="card" id="stream-card-${s.camera_id}">
+      <div class="card-header">
+        <h3>${s.camera_id}</h3>
+        ${statusBadge}
+      </div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+          <div>
+            <div style="font-size:0.68rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">FPS</div>
+            <div style="font-size:1.3rem;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--success);">${(s.fps||0).toFixed(1)}</div>
+          </div>
+          <div>
+            <div style="font-size:0.68rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Latency</div>
+            <div style="font-size:1.3rem;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--info);">${(s.latency_ms||0).toFixed(1)} ms</div>
+          </div>
+          <div>
+            <div style="font-size:0.68rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Frames</div>
+            <div style="font-size:1.1rem;font-weight:700;font-family:'JetBrains Mono',monospace;">${(s.frames||0).toLocaleString()}</div>
+          </div>
+          <div>
+            <div style="font-size:0.68rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Alerts</div>
+            <div style="font-size:1.1rem;font-weight:700;font-family:'JetBrains Mono',monospace;color:${(s.alerts||0) > 0 ? 'var(--danger)' : 'var(--text-primary)'};">${s.alerts||0}</div>
+          </div>
+        </div>
+        <div style="font-size:0.75rem;color:var(--text-muted);word-break:break-all;margin-bottom:14px;">
+          <strong>Source:</strong> ${s.source}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-primary btn-sm" onclick="processStream('${s.camera_id}')" id="btn-process-${s.camera_id}">
+            Process Clip
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="checkStream('${s.camera_id}')">
+            Check
+          </button>
+          <button class="btn-danger-sm" onclick="deleteStream('${s.camera_id}')">
+            Remove
+          </button>
+        </div>
+        <div id="stream-result-${s.camera_id}" style="margin-top:10px;"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Add stream ────────────────────────────────────────────────────────────
+async function addStream() {
+  const cam_id = document.getElementById('new-cam-id').value.trim();
+  const source = document.getElementById('new-cam-source').value.trim();
+  const resDiv = document.getElementById('add-result');
+
+  if (!cam_id || !source) {
+    resDiv.innerHTML = '<span class="badge badge-anomalous">Please enter both Camera ID and Source</span>';
+    return;
+  }
+
+  const btn = document.getElementById('btn-add-stream');
+  btn.disabled = true; btn.textContent = 'Checking...';
+  resDiv.innerHTML = '<span class="badge badge-info">Checking source connectivity...</span>';
+
+  try {
+    const r = await fetch('/api/streams/add', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ camera_id: cam_id, source: source }),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      const check = d.check;
+      if (check.reachable) {
+        setResultBadge(resDiv, true, "Stream added & reachable", `${check.resolution || ''} @ ${check.fps || '?'} FPS`);
+      } else {
+        setResultBadge(resDiv, false, "Stream added but NOT reachable", check.error || '');
+      }
+      document.getElementById('new-cam-id').value = '';
+      document.getElementById('new-cam-source').value = '';
+      loadStreams();
+    } else {
+      setResultBadge(resDiv, false, d.error);
+    }
+  } catch(e) {
+    resDiv.innerHTML = `<span class="badge badge-anomalous">Error: ${e.message}</span>`;
+  }
+  btn.disabled = false; btn.textContent = '+ Add Stream';
+}
+
+// ── Check stream ──────────────────────────────────────────────────────────
+async function checkStream(cam_id) {
+  const resDiv = document.getElementById(`stream-result-${cam_id}`);
+  resDiv.innerHTML = '<span class="badge badge-info">Checking...</span>';
+  try {
+    const r = await fetch(`/api/streams/${cam_id}/check`, { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      const check = d.check;
+      if (check.reachable) {
+        setResultBadge(resDiv, true, "Reachable", `${check.resolution || ''} @ ${check.fps || '?'} FPS`);
+      } else {
+        setResultBadge(resDiv, false, `Not reachable: ${check.error || 'unknown'}`);
+      }
+      loadStreams();
+    }
+  } catch(e) {
+    resDiv.innerHTML = `<span class="badge badge-anomalous">${e.message}</span>`;
+  }
+}
+
+// ── Process stream clip ───────────────────────────────────────────────────
+async function processStream(cam_id) {
+  const btn = document.getElementById(`btn-process-${cam_id}`);
+  const resDiv = document.getElementById(`stream-result-${cam_id}`);
+  btn.disabled = true; btn.textContent = 'Processing...';
+  resDiv.innerHTML = '<span class="badge badge-info">Capturing &amp; running inference...</span>';
+
+  try {
+    const r = await fetch('/api/process-stream', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ camera_id: cam_id }),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      const isAnom = d.anom_score > 0.5;
+      const badge = isAnom
+        ? `<span class="badge badge-anomalous">ANOMALY: ${d.prediction}</span>`
+        : `<span class="badge badge-normal">Normal</span>`;
+      resDiv.innerHTML = `${badge}
+        <span style="font-family:'JetBrains Mono',monospace;margin-left:8px;color:${isAnom?'var(--danger)':'var(--success)'}">
+          score=${d.anom_score.toFixed(4)}
+        </span>
+        <span style="font-size:0.72rem;color:var(--text-muted);margin-left:8px;">
+          ${d.timings.total_ms.toFixed(0)}ms
+        </span>`;
+      loadStreams();
+    } else {
+      resDiv.innerHTML = `<span class="badge badge-anomalous">${d.error}</span>`;
+    }
+  } catch(e) {
+    resDiv.innerHTML = `<span class="badge badge-anomalous">${e.message}</span>`;
+  }
+  btn.disabled = false; btn.textContent = 'Process Clip';
+}
+
+// ── Delete stream ─────────────────────────────────────────────────────────
+async function deleteStream(cam_id) {
+  if (!confirm(`Remove stream ${cam_id}?`)) return;
+  await fetch(`/api/streams/${cam_id}`, { method: 'DELETE' });
+  loadStreams();
+}
+
+loadStreams();
+</script>
+{% endblock %}
