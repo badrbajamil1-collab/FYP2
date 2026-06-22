@@ -43,6 +43,17 @@ def resample(feat: np.ndarray, n: int) -> np.ndarray:
     alpha = (idx - lo)[:, None]
     return (feat[lo] * (1 - alpha) + feat[hi] * alpha).astype(np.float32)
 
+def _safe_kpts(kpts_tensor, idx: int) -> np.ndarray:
+    """Safely extract a single person's keypoints as a 2D (17, 3) numpy array.
+    Handles both 2D (17, 3) and 3D (N, 17, 3) tensors from YOLO."""
+    arr = kpts_tensor.cpu().numpy() if hasattr(kpts_tensor, 'cpu') else np.array(kpts_tensor)
+    if arr.ndim == 3:
+        return arr[idx]   # (N, 17, 3) — pick person
+    elif arr.ndim == 2:
+        return arr        # Already (17, 3)
+    else:
+        return np.zeros((17, 3), dtype=np.float32)
+
 def _angle(a, b, c):
     ba, bc = a - b, c - b
     n1, n2 = np.linalg.norm(ba), np.linalg.norm(bc)
@@ -142,11 +153,14 @@ class SkeletonExtractor:
         static = []
         for idx, res in enumerate(results):
             fh, fw = frames[idx].shape[:2]
-            if res.keypoints is None or len(res.keypoints.data) == 0 or res.boxes is None:
+            if res.keypoints is None or res.boxes is None:
+                static.append(np.zeros(DIM_STATIC, dtype=np.float32)); continue
+            kp_data = res.keypoints.data
+            if kp_data is None or kp_data.shape[0] == 0:
                 static.append(np.zeros(DIM_STATIC, dtype=np.float32)); continue
             boxes = res.boxes.xyxy.cpu().numpy(); areas = (boxes[:, 2]-boxes[:, 0]) * (boxes[:, 3]-boxes[:, 1])
             best  = int(np.argmax(areas))
-            static.append(_kpts_to_vec(res.keypoints.data[best].cpu().numpy(), boxes[best], fh, fw, len(boxes)))
+            static.append(_kpts_to_vec(_safe_kpts(kp_data, best), boxes[best], fh, fw, len(boxes)))
         st = np.stack(static, axis=0); limb = st[:, :DIM_LIMB]; vel = np.zeros_like(limb)
         vel[1:] = limb[1:] - limb[:-1]; vel /= np.linalg.norm(vel, axis=1, keepdims=True).clip(min=1e-6)
         return np.concatenate([st, vel], axis=1)

@@ -69,6 +69,18 @@ def _angle(a, b, c):
     return float(np.arccos(np.clip(np.dot(ba, bc) / (n1 * n2), -1., 1.)) / np.pi)
 
 
+def _safe_kpts(kpts_tensor, idx: int) -> np.ndarray:
+    """Safely extract a single person's keypoints as a 2D (17, 3) numpy array.
+    Handles both 2D (17, 3) and 3D (N, 17, 3) tensors from YOLO."""
+    arr = kpts_tensor.cpu().numpy() if hasattr(kpts_tensor, 'cpu') else np.array(kpts_tensor)
+    if arr.ndim == 3:
+        return arr[idx]   # (N, 17, 3) — pick person
+    elif arr.ndim == 2:
+        return arr        # Already (17, 3)
+    else:
+        return np.zeros((17, 3), dtype=np.float32)
+
+
 def _kpts_to_vec(kpts_np, box_xyxy, fh, fw, num_persons):
     W = float(box_xyxy[2] - box_xyxy[0])
     H = float(box_xyxy[3] - box_xyxy[1])
@@ -128,15 +140,18 @@ def extract_skeleton(video_path, yolo_model, frame_interval=16, conf=0.25,
                              device=device, half=half, imgsz=imgsz)
         for idx, res in enumerate(results):
             fh, fw = batch[idx].shape[:2]
-            if (res.keypoints is None or len(res.keypoints.data) == 0
-                    or res.boxes is None):
+            if (res.keypoints is None or res.boxes is None):
+                static.append(np.zeros(DIM_STATIC, dtype=np.float32))
+                continue
+            kp_data = res.keypoints.data
+            if kp_data is None or kp_data.shape[0] == 0:
                 static.append(np.zeros(DIM_STATIC, dtype=np.float32))
                 continue
             boxes = res.boxes.xyxy.cpu().numpy()
             areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
             best = int(np.argmax(areas))
             static.append(_kpts_to_vec(
-                res.keypoints.data[best].cpu().numpy(),
+                _safe_kpts(kp_data, best),
                 boxes[best], fh, fw, len(boxes)
             ))
 

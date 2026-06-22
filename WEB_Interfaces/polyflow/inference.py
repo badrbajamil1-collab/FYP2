@@ -42,8 +42,12 @@ def process_video(video_path, model_manager, seg_num=32, stage2_enabled=False):
     prob = mm.slda.predict_proba(emb.cpu().numpy())[0]
     result['timings']['inference_ms'] = (time.perf_counter()-t0)*1000
 
-    pred_idx = int(prob.argmax())
+    # Use a threshold instead of raw argmax to reduce false positives.
+    # argmax on [0.49, 0.51] would call "Anomalous" — too sensitive.
+    ANOMALY_THRESHOLD = 0.55   # tune this: higher = fewer false alarms
     anom_score = float(prob[1])
+    is_anomalous = anom_score >= ANOMALY_THRESHOLD
+    pred_idx = 1 if is_anomalous else 0
     prediction = mm.BINARY_NAMES[pred_idx]
     confidence = float(prob[pred_idx])
 

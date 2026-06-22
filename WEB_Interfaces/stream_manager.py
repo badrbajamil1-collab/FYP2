@@ -262,6 +262,19 @@ def _angle(a, b, c):
     if n1 < 1e-6 or n2 < 1e-6: return 0.5
     return float(np.arccos(np.clip(np.dot(ba, bc) / (n1 * n2), -1.0, 1.0)) / np.pi)
 
+def _safe_kpts(kpts_tensor, idx: int) -> np.ndarray:
+    """Safely extract a single person's keypoints as a 2D (17, 3) numpy array.
+    Handles both 2D (17, 3) and 3D (N, 17, 3) tensors from YOLO."""
+    arr = kpts_tensor.cpu().numpy() if hasattr(kpts_tensor, 'cpu') else np.array(kpts_tensor)
+    if arr.ndim == 3:
+        # (N, 17, 3) — pick person at idx
+        return arr[idx]
+    elif arr.ndim == 2:
+        # Already (17, 3) — ignore idx
+        return arr
+    else:
+        return np.zeros((17, 3), dtype=np.float32)
+
 def _kpts_to_vec(kpts, box_xyxy, fh, fw, num_persons):
     W, H = float(box_xyxy[2] - box_xyxy[0]), float(box_xyxy[3] - box_xyxy[1])
     if W < 1.0 or H < 1.0: return np.zeros(DIM_STATIC, dtype=np.float32)
@@ -303,12 +316,16 @@ class SkeletonExtractor:
             fh, fw = frame.shape[:2]
             results = self.yolo(frame, conf=self.conf, verbose=False, imgsz=self.imgsz, device=self.device, half=self.half)
             r = results[0]
-            if r.keypoints is None or len(r.keypoints.data) == 0 or r.boxes is None:
+            if r.keypoints is None or r.boxes is None:
+                static.append(np.zeros(DIM_STATIC, dtype=np.float32))
+                continue
+            kp_data = r.keypoints.data
+            if kp_data is None or kp_data.shape[0] == 0:
                 static.append(np.zeros(DIM_STATIC, dtype=np.float32))
                 continue
             areas = ((r.boxes.xyxy[:, 2] - r.boxes.xyxy[:, 0]) * (r.boxes.xyxy[:, 3] - r.boxes.xyxy[:, 1])).cpu().numpy()
             best  = int(np.argmax(areas))
-            kpts  = r.keypoints.data[best].cpu().numpy()
+            kpts  = _safe_kpts(kp_data, best)
             box   = r.boxes.xyxy[best].cpu().numpy()
             static.append(_kpts_to_vec(kpts, box, fh, fw, len(r.boxes)))
         st   = np.stack(static, axis=0)
@@ -390,7 +407,7 @@ class PolylineExtractor:
                     good_new = p1[st == 1]
                     good_idx = np.where(st.flatten() == 1)[0]
                     for ni, oi in enumerate(good_idx):
-                        if oi < len(trajs): trajs[oi].append((float(good_new[ni, 0, 0]), float(good_new[ni, 0, 1])))
+                        if oi < len(trajs): trajs[oi].append((float(good_new[ni, 0]), float(good_new[ni, 1])))
                     p0 = good_new.reshape(-1, 1, 2)
                 else: p0 = np.zeros((0, 1, 2), dtype=np.float32)
             prev_gray = gray
