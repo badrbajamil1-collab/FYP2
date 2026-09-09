@@ -248,6 +248,45 @@ CaptureThread (Producer) → FrameBuffer → ProcessThread (Consumer)
 ---
 
 
+## ☁️ Deployment Architecture (AWS)
+
+For production, multi-site deployment beyond the local Flask app, PolyFlow's
+pipeline maps onto a managed AWS stack:
+
+| Stage | Service | Role |
+|-------|---------|------|
+| Edge ingestion | **AWS IoT Core / Greengrass** | Registers camera gateways; can run lightweight pre-processing (frame sampling, pose extraction) on-site before data leaves the premises |
+| Real-time streaming | **Amazon Kinesis** (Video Streams + Data Streams) | Carries raw video and extracted feature vectors (skeleton / optical-flow / visual) into the processing layer with low latency |
+| Inference & isolation | **Amazon EKS** | Runs the transformer + SLDA inference service as pods, one namespace per camera stream or tenant, with NetworkPolicies for isolation and HPA for autoscaling under load |
+| Event routing | **Amazon EventBridge** | Receives anomaly events from inference pods and routes by severity — high-confidence anomalies trigger immediate alerts, lower-confidence ones are queued for review |
+| Alerting | **Amazon SNS** | Delivers real-time notifications (SMS/email/on-call) for high-severity anomaly events |
+| Persistent storage | **Amazon Aurora** | Durable store for alerts, predictions, and metadata — the cloud-scale replacement for the local `polyflow.db` SQLite file |
+
+**Isolation model:** each camera stream (or tenant) gets its own EKS namespace
+with a dedicated inference pod, resource quotas, and NetworkPolicy rules —
+so a compromised or misbehaving stream can't see or affect another's traffic,
+and pods can be scaled or restarted independently without impacting the rest
+of the fleet.
+
+```mermaid
+architecture-beta
+    group aws(cloud)[AWS Cloud]
+
+    service iot(server)[IoT Core Greengrass] in aws
+    service kinesis(server)[Kinesis Streams] in aws
+    service eks(server)[EKS Isolated Pods] in aws
+    service eventbridge(server)[EventBridge] in aws
+    service aurora(database)[Aurora Storage] in aws
+    service sns(server)[SNS Alerts] in aws
+
+    iot:R -- L:kinesis
+    kinesis:R -- L:eks
+    eks:R -- L:eventbridge
+    eventbridge:B -- T:aurora
+    eventbridge:R -- L:sns
+```
+
+
 
 ## 📚 References
 
