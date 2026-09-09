@@ -73,11 +73,86 @@
 
 ---
 
+## ☁️ Deployment Architecture (AWS)
+
+For production, multi-site deployment beyond the local Flask app, PolyFlow's
+pipeline maps onto a managed AWS stack:
+
+| Stage | Service | Role |
+|-------|---------|------|
+| Edge ingestion | **AWS IoT Core / Greengrass** | Registers camera gateways; can run lightweight pre-processing (frame sampling, pose extraction) on-site before data leaves the premises |
+| Real-time streaming | **Amazon Kinesis** (Video Streams + Data Streams) | Carries raw video and extracted feature vectors (skeleton / optical-flow / visual) into the processing layer with low latency |
+| Inference & isolation | **Amazon EKS** | Runs the transformer + SLDA inference service as pods, one namespace per camera stream or tenant, with NetworkPolicies for isolation and HPA for autoscaling under load |
+| Event routing | **Amazon EventBridge** | Receives anomaly events from inference pods and routes by severity — high-confidence anomalies trigger immediate alerts, lower-confidence ones are queued for review |
+| Alerting | **Amazon SNS** | Delivers real-time notifications (SMS/email/on-call) for high-severity anomaly events |
+| Persistent storage | **Amazon Aurora** | Durable store for alerts, predictions, and metadata — the cloud-scale replacement for the local `polyflow.db` SQLite file |
+
+**Isolation model:** each camera stream (or tenant) gets its own EKS namespace
+with a dedicated inference pod, resource quotas, and NetworkPolicy rules —
+so a compromised or misbehaving stream can't see or affect another's traffic,
+and pods can be scaled or restarted independently without impacting the rest
+of the fleet.
+
+```mermaid
+architecture-beta
+    group aws(cloud)[AWS Cloud]
+
+    service iot(server)[IoT Core Greengrass] in aws
+    service kinesis(server)[Kinesis Streams] in aws
+    service eks(server)[EKS Isolated Pods] in aws
+    service eventbridge(server)[EventBridge] in aws
+    service aurora(database)[Aurora Storage] in aws
+    service sns(server)[SNS Alerts] in aws
+
+    iot:R -- L:kinesis
+    kinesis:R -- L:eks
+    eks:R -- L:eventbridge
+    eventbridge:B -- T:aurora
+    eventbridge:R -- L:sns
+```
+
+### Provisioning with CloudFormation
+
+The full stack above — VPC/networking, IoT Core rule, Kinesis streams, EKS
+cluster + node group, EventBridge bus/rule, an alert-persisting Lambda, Aurora
+Serverless v2, and SNS — is defined in
+[`polyflow-aws-infrastructure.yaml`](./polyflow-aws-infrastructure.yaml).
+
+```bash
+aws cloudformation deploy \
+  --template-file polyflow-aws-infrastructure.yaml \
+  --stack-name polyflow \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides AlertEmail=you@example.com
+```
+
+Notes before deploying:
+
+- **EKS isolation is two-stage.** The template provisions the cluster and node
+  capacity; per-stream isolation (namespaces, ResourceQuotas, NetworkPolicies)
+  is applied afterward with `kubectl`/Helm once connected via the
+  `EksUpdateKubeconfigCommand` stack output.
+- **Aurora uses the Data API**, so the alert-persisting Lambda doesn't need to
+  sit inside the VPC — it calls Aurora over the AWS API using a Secrets
+  Manager–managed password (see the `AuroraSecretArn` output).
+- **The `alerts` table isn't created automatically.** The SQL is commented in
+  the Lambda source — run it once via the Data API or `psql` after the stack
+  is up.
+- **This is a starting point, not a hardened production template.** Review
+  IAM scopes, subnet sizing, instance types, and pinned EKS/Aurora versions
+  before using it beyond dev/staging.
+- **Cost note:** the stack provisions a NAT Gateway, an EKS cluster + node
+  group, and an Aurora Serverless v2 cluster — none of it is free-tier. Tear
+  it down between test runs with `aws cloudformation delete-stack` if needed.
+
+---
+
 ## 📁 Project Structure
 
 ```
 FYP2/
 ├── README.md
+├── polyflow-aws-infrastructure.yaml  # CloudFormation: IoT/Kinesis/EKS/EventBridge/Aurora/SNS
 ├── WEB_Interfaces/                # Main application
 │   ├── app.py                     # Flask backend (15+ API endpoints)
 │   ├── processor.py               # Video processing pipeline
@@ -246,47 +321,6 @@ CaptureThread (Producer) → FrameBuffer → ProcessThread (Consumer)
 ```
 
 ---
-
-
-## ☁️ Deployment Architecture (AWS)
-
-For production, multi-site deployment beyond the local Flask app, PolyFlow's
-pipeline maps onto a managed AWS stack:
-
-| Stage | Service | Role |
-|-------|---------|------|
-| Edge ingestion | **AWS IoT Core / Greengrass** | Registers camera gateways; can run lightweight pre-processing (frame sampling, pose extraction) on-site before data leaves the premises |
-| Real-time streaming | **Amazon Kinesis** (Video Streams + Data Streams) | Carries raw video and extracted feature vectors (skeleton / optical-flow / visual) into the processing layer with low latency |
-| Inference & isolation | **Amazon EKS** | Runs the transformer + SLDA inference service as pods, one namespace per camera stream or tenant, with NetworkPolicies for isolation and HPA for autoscaling under load |
-| Event routing | **Amazon EventBridge** | Receives anomaly events from inference pods and routes by severity — high-confidence anomalies trigger immediate alerts, lower-confidence ones are queued for review |
-| Alerting | **Amazon SNS** | Delivers real-time notifications (SMS/email/on-call) for high-severity anomaly events |
-| Persistent storage | **Amazon Aurora** | Durable store for alerts, predictions, and metadata — the cloud-scale replacement for the local `polyflow.db` SQLite file |
-
-**Isolation model:** each camera stream (or tenant) gets its own EKS namespace
-with a dedicated inference pod, resource quotas, and NetworkPolicy rules —
-so a compromised or misbehaving stream can't see or affect another's traffic,
-and pods can be scaled or restarted independently without impacting the rest
-of the fleet.
-
-```mermaid
-architecture-beta
-    group aws(cloud)[AWS Cloud]
-
-    service iot(server)[IoT Core Greengrass] in aws
-    service kinesis(server)[Kinesis Streams] in aws
-    service eks(server)[EKS Isolated Pods] in aws
-    service eventbridge(server)[EventBridge] in aws
-    service aurora(database)[Aurora Storage] in aws
-    service sns(server)[SNS Alerts] in aws
-
-    iot:R -- L:kinesis
-    kinesis:R -- L:eks
-    eks:R -- L:eventbridge
-    eventbridge:B -- T:aurora
-    eventbridge:R -- L:sns
-```
-
-
 
 ## 📚 References
 
